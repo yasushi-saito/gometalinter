@@ -74,7 +74,7 @@ func setupFlags(app *kingpin.Application) {
 	app.GetFlag("help").Short('h')
 }
 
-func cliLinterOverrides(element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
+func cliLinterOverrides(app *kingpin.Application, element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
 	// expected input structure - <name>:<command-spec>
 	parts := strings.SplitN(*element.Value, ":", 2)
 	if len(parts) < 2 {
@@ -109,11 +109,11 @@ func loadDefaultConfig(app *kingpin.Application, element *kingpin.ParseElement, 
 	return loadConfigFile(configFile)
 }
 
-func loadConfig(element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
+func loadConfig(app *kingpin.Application, element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
 	return loadConfigFile(*element.Value)
 }
 
-func disableAction(element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
+func disableAction(app *kingpin.Application, element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
 	out := []string{}
 	for _, linter := range config.Enable {
 		if linter != *element.Value {
@@ -124,17 +124,17 @@ func disableAction(element *kingpin.ParseElement, ctx *kingpin.ParseContext) err
 	return nil
 }
 
-func enableAction(element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
+func enableAction(app *kingpin.Application, element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
 	config.Enable = append(config.Enable, *element.Value)
 	return nil
 }
 
-func disableAllAction(element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
+func disableAllAction(app *kingpin.Application, element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
 	config.Enable = []string{}
 	return nil
 }
 
-func enableAllAction(element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
+func enableAllAction(app *kingpin.Application, element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
 	for linter := range defaultLinters {
 		config.Enable = append(config.Enable, linter)
 	}
@@ -197,9 +197,7 @@ func main() {
 	kingpin.Version(fmt.Sprintf("gometalinter version %s built from %s on %s", version, commit, date))
 	pathsArg := kingpin.Arg("path", "Directories to lint. Defaults to \".\". <path>/... will recurse.").Strings()
 	app := kingpin.CommandLine
-	app.Action(func(element *kingpin.ParseElement, ctx *kingpin.ParseContext) error {
-		return loadDefaultConfig(app, element, ctx)
-	})
+	app.Action(loadDefaultConfig)
 	setupFlags(app)
 	app.Help = fmt.Sprintf(`Aggregate and normalise the output of a whole bunch of Go linters.
 
@@ -387,7 +385,6 @@ func relativePackagePath(dir string) string {
 
 func lintersFromConfig(config *Config) map[string]*Linter {
 	out := map[string]*Linter{}
-	config.Enable = replaceWithMegacheck(config.Enable, config.EnableAll)
 	for _, name := range config.Enable {
 		linter := getLinterByName(name, LinterConfig(config.Linters[name]))
 		if config.Fast && !linter.IsFast {
@@ -399,40 +396,6 @@ func lintersFromConfig(config *Config) map[string]*Linter {
 		delete(out, linter)
 	}
 	return out
-}
-
-// replaceWithMegacheck checks enabled linters if they duplicate megacheck and
-// returns a either a revised list removing those and adding megacheck or an
-// unchanged slice. Emits a warning if linters were removed and swapped with
-// megacheck.
-func replaceWithMegacheck(enabled []string, enableAll bool) []string {
-	var (
-		staticcheck,
-		gosimple,
-		unused bool
-		revised []string
-	)
-	for _, linter := range enabled {
-		switch linter {
-		case "staticcheck":
-			staticcheck = true
-		case "gosimple":
-			gosimple = true
-		case "unused":
-			unused = true
-		case "megacheck":
-			// Don't add to revised slice, we'll add it later
-		default:
-			revised = append(revised, linter)
-		}
-	}
-	if staticcheck && gosimple && unused {
-		if !enableAll {
-			warning("staticcheck, gosimple and unused are all set, using megacheck instead")
-		}
-		return append(revised, "megacheck")
-	}
-	return enabled
 }
 
 func findVendoredLinters() string {
